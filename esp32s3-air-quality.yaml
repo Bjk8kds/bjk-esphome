@@ -1,0 +1,980 @@
+substitutions:
+  # Set the device name
+  name: esp32s3-air-quality
+  # Set the friendly name
+  friendly_name: ESP32S3 Air Quality
+  # Provide an OTA password:
+  ota_pass: "ota_password"
+  # LED default transition
+  tr: "300ms"
+  # LED color correction
+  cr1: "0.3"
+  cb1: "0.35"
+  cr2: "0.2"
+  cb2: "0.24"
+  # Initial value
+  co2_low_init: "800"
+  co2_medium_init: "1200"
+  co2_multiplier_init: "1.2"
+  dust_low_init: "15"
+  dust_medium_init: "50"
+  dust_multiplier_init: "1" # GP2Y1014 Vo 0.1 - 1.1v (?)
+  tvoc_low_init: "250"
+  tvoc_medium_init: "650"
+  tvoc_multiplier_init: "1"
+
+# Some code from ClaudeAI & ChatGPT #
+esphome:
+  name: $name
+  friendly_name: $friendly_name
+  comment: DIY Air Quality Sensor with WeAct Studio ESP32S3 Mini, MH-Z19B, GP2Y1014, and ENS160+AHT2x
+  platformio_options:
+    board_build.flash_mode: dio
+  on_boot:
+    - script.execute: boot_led # boot animation led
+  name_add_mac_suffix: false
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: LIGHT
+  output_power: 12dB
+  reboot_timeout: 10min
+  fast_connect: true
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: $friendly_name
+
+captive_portal:
+
+web_server:
+  port: 80
+  version: 3
+
+esp32:
+  board: adafruit_feather_esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+
+# Enable Home Assistant API
+api:
+
+ota:
+  - platform: esphome
+    password: $ota_pass
+
+# Enable logging
+logger:
+  level: INFO
+
+globals:
+  # CO2
+  - id: co2_low_threshold
+    type: float
+    restore_value: true
+    initial_value: $co2_low_init
+  - id: co2_medium_threshold
+    type: float
+    restore_value: true
+    initial_value: $co2_medium_init
+  - id: co2_multiplier
+    type: float
+    restore_value: true
+    initial_value: $co2_multiplier_init
+  # PM2.5
+  - id: dust_low_threshold
+    type: float
+    restore_value: true
+    initial_value: $dust_low_init
+  - id: dust_medium_threshold
+    type: float
+    restore_value: true
+    initial_value: $dust_medium_init
+  - id: dust_multiplier
+    type: float
+    restore_value: true
+    initial_value: $dust_multiplier_init
+  # TVOC
+  - id: tvoc_low_threshold
+    type: float
+    restore_value: true
+    initial_value: $tvoc_low_init
+  - id: tvoc_medium_threshold
+    type: float
+    restore_value: true
+    initial_value: $tvoc_medium_init
+  - id: tvoc_multiplier
+    type: float
+    restore_value: true
+    initial_value: $tvoc_multiplier_init
+  # AHT
+  - id: temp_offset
+    type: float
+    restore_value: true
+    initial_value: '0'
+  - id: humid_offset
+    type: float
+    restore_value: true
+    initial_value: '0'
+  - id: indicator_enabled
+    type: bool
+    initial_value: 'true'
+
+script:
+  - id: boot_led # boot animation led
+    then:
+      - light.turn_on:
+          id: main_led
+          effect: "Rainbow"
+      - delay: 30s
+      - light.turn_off: main_led
+  # CO2
+  - id: update_co2_status
+    then:
+      # Text Sensor
+      - text_sensor.template.publish:
+          id: co2_status
+          state: !lambda |-
+            float co2_value = id(co2_sensor).state;
+            if (isnan(co2_value)) {
+              return "Not Available";
+            }
+            if (co2_value <= id(co2_low_threshold)) {
+              return "Good";
+            } else if (co2_value <= id(co2_medium_threshold)) {
+              return "Warning";
+            } else {
+              return "High";
+            }
+      # LED Control Logic
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(co2_sensor).state <= id(co2_low_threshold);'
+          then:
+            # Green for low CO2
+            - light.turn_off: led_co2
+            - delay: 200ms
+            - light.turn_on:
+                id: led_co2
+                brightness: 100%
+                red: 0
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(co2_sensor).state > id(co2_low_threshold) && id(co2_sensor).state <= id(co2_medium_threshold);'
+          then:
+            # Yellow for medium CO2
+            - light.turn_off: led_co2
+            - delay: 200ms
+            - light.turn_on:
+                id: led_co2
+                brightness: 100%
+                red: 1
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(co2_sensor).state > id(co2_medium_threshold);'
+          then:
+            # Red for high CO2
+            - light.turn_off: led_co2
+            - delay: 200ms
+            - light.turn_on:
+                id: led_co2
+                brightness: 100%
+                red: 1
+                green: 0
+                blue: 0
+  # PM2.5
+  - id: update_dust_status
+    then:
+      # Text Sensor
+      - text_sensor.template.publish:
+          id: dust_status
+          state: !lambda |-
+            float dust_value = id(dust_sensor).state;
+            if (isnan(dust_value)) {
+              return "Not Available";
+            }
+            if (dust_value <= id(dust_low_threshold)) {
+              return "Good";
+            } else if (dust_value <= id(dust_medium_threshold)) {
+              return "Warning";
+            } else {
+              return "High";
+            }
+      # LED Control Logic
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(dust_sensor).state <= id(dust_low_threshold);'
+          then:
+            # Green
+            - light.turn_off: led_dust
+            - delay: 200ms
+            - light.turn_on:
+                id: led_dust
+                brightness: 100%
+                red: 0
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(dust_sensor).state > id(dust_low_threshold) && id(dust_sensor).state <= id(dust_medium_threshold);'
+          then:
+            # Yellow
+            - light.turn_off: led_dust
+            - delay: 200ms
+            - light.turn_on:
+                id: led_dust
+                brightness: 100%
+                red: 1
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(dust_sensor).state > id(dust_medium_threshold);'
+          then:
+            # Red
+            - light.turn_off: led_dust
+            - delay: 200ms
+            - light.turn_on:
+                id: led_dust
+                brightness: 100%
+                red: 1
+                green: 0
+                blue: 0
+  # TVOC
+  - id: update_tvoc_status
+    then:
+      # Text Sensor
+      - text_sensor.template.publish:
+          id: tvoc_status
+          state: !lambda |-
+            float tvoc_value = id(tvoc_sensor).state;
+            if (isnan(tvoc_value)) {
+              return "Not Available";
+            }
+            if (tvoc_value <= id(tvoc_low_threshold)) {
+              return "Good";
+            } else if (tvoc_value <= id(tvoc_medium_threshold)) {
+              return "Warning";
+            } else {
+              return "High";
+            }
+      # LED Control Logic
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(tvoc_sensor).state <= id(tvoc_low_threshold);'
+          then:
+            # Green
+            - light.turn_off: led_tvoc
+            - delay: 200ms
+            - light.turn_on:
+                id: led_tvoc
+                brightness: 100%
+                red: 0
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(tvoc_sensor).state > id(tvoc_low_threshold) && id(tvoc_sensor).state <= id(tvoc_medium_threshold);'
+          then:
+            # Yellow
+            - light.turn_off: led_tvoc
+            - delay: 200ms
+            - light.turn_on:
+                id: led_tvoc
+                brightness: 100%
+                red: 1
+                green: 1
+                blue: 0
+      - if:
+          condition:
+            - lambda: 'return id(indicator_enabled);'
+            - lambda: 'return id(tvoc_sensor).state > id(tvoc_medium_threshold);'
+          then:
+            # Red
+            - light.turn_off: led_tvoc
+            - delay: 200ms
+            - light.turn_on:
+                id: led_tvoc
+                brightness: 100%
+                red: 1
+                green: 0
+                blue: 0
+  # AQI
+  - id: update_aqi_status
+    then:
+      # Text Sensor
+      - text_sensor.template.publish:
+          id: air_quality_rating
+          state: !lambda |-
+            switch ( (int) (id(custom_aqi).state) ) {
+              case 1: return {"Excellent"};
+              case 2: return {"Good"};
+              case 3: return {"Moderate"};
+              case 4: return {"Poor"};
+              case 5: return {"Unhealthy"};
+              default: return {"Not Available"};
+            }
+
+sensor:
+  - platform: template
+    name: ESP CPU Speed
+    icon: mdi:chip
+    lambda: |-
+      return ets_get_cpu_frequency();
+    accuracy_decimals: 0
+    unit_of_measurement: 'MHz'
+    entity_category: "diagnostic"
+  - platform: template
+    name: ESP APB Speed
+    icon: mdi:chip
+    lambda: |-
+      return ets_get_apb_freq() / 1000000;
+    accuracy_decimals: 0
+    unit_of_measurement: 'MHz'
+    entity_category: "diagnostic"
+  - platform: template
+    id: esp_free_memory
+    icon: mdi:memory
+    name: ESP Free Memory
+    lambda: |-
+      return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
+    unit_of_measurement: 'kB'
+    state_class: measurement
+    entity_category: "diagnostic"
+  - platform: template
+    name: ESP Used Memory
+    id: esp_used_memory
+    icon: mdi:memory
+    lambda: |-
+      return (heap_caps_get_total_size(MALLOC_CAP_INTERNAL) - heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) / 1024;
+    unit_of_measurement: "kB"
+    state_class: measurement
+    entity_category: "diagnostic"
+  - platform: template
+    name: ESP Memory Size
+    id: esp_memory_size
+    icon: mdi:memory
+    lambda: |-
+      return heap_caps_get_total_size(MALLOC_CAP_INTERNAL) / 1024;
+    unit_of_measurement: "kB"
+    state_class: measurement
+    entity_category: "diagnostic"
+  - platform: internal_temperature
+    name: ESP Temperature
+    unit_of_measurement: '°C'
+    device_class: TEMPERATURE
+    update_interval: 10s
+    entity_category: "diagnostic"
+  - platform: uptime
+    name: Uptime
+    id: sys_uptime
+    update_interval: 10s
+    entity_category: "diagnostic"
+  - platform: wifi_signal 
+    name: WiFi RSSI
+    id: wifi_signal_db
+    update_interval: 10s
+    entity_category: "diagnostic"
+
+  # MH-Z19
+  - platform: mhz19
+    id: mhz19_id
+    uart_id: uart_mhz19
+    co2:
+      name: "CO2 Concentration"
+      id: co2_sensor
+      filters:
+        - lambda: |-
+            // just in case the initial value is below 406, the initial value will be displayed
+            return x < 406 ? x : ((x - 406) * id(co2_multiplier)) + 406;
+      on_value:
+        then:
+          - script.execute: update_co2_status
+    temperature:
+      name: "MH-Z19 Temperature"
+      id: mhz19_temp
+    update_interval: 60s
+    automatic_baseline_calibration: false
+
+  # GP2Y1014
+  - platform: gp2y1010au0f
+    name: "PM2.5 Dust"
+    id: dust_sensor
+    sensor: adc_sensor
+    #adc_voltage_offset: -0.1    # not working!
+    #adc_voltage_multiplier: 1.4 # GP2Y1014 Vo 0.1 - 1.1v
+    output: dust_sensor_led
+    update_interval: 30s
+    filters:
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 2
+          send_first_at: 2
+      - skip_initial: 1
+      - multiply: !lambda return id(dust_multiplier);
+    on_value:
+      then:
+        - script.execute: update_dust_status
+  # ADC
+  - platform: adc
+    id: adc_sensor
+    pin: GPIO4
+    internal: true
+    update_interval: never
+
+  # ENS160
+  - platform: ens160_i2c
+    tvoc:
+      name: "TVOC"
+      id: tvoc_sensor
+      filters:
+        - sliding_window_moving_average:
+            window_size: 3
+            send_every: 2
+            send_first_at: 2
+        - multiply: !lambda return id(tvoc_multiplier);
+      on_value:
+        then:
+          - component.update: custom_aqi  # Force update Custom AQI
+          - script.execute: update_tvoc_status
+    eco2:
+      name: "eCO2"
+      id: eco2_sensor
+      internal: true # internal !!!
+    aqi:
+      id: ens160_aqi
+      name: "Air Quality Index"
+      internal: true # internal !!!
+      # on_value:
+      #   then:
+      #     - script.execute: update_aqi_status
+    update_interval: 30s
+    i2c_id: bus_a
+    address: 0x53
+    compensation:
+      temperature: aht_temp
+      humidity: aht_humid
+  # Custom AQI that will follow the filtered TVOC value
+  - platform: template
+    name: "Air Quality Index"
+    id: custom_aqi
+    accuracy_decimals: 0
+    update_interval: never # Disable periodic updates
+    lambda: |-
+      float tvoc_value = id(tvoc_sensor).state;
+      if (isnan(tvoc_value)) {
+        // Return a default value
+        return NAN;
+      }
+      if (tvoc_value <= 65) return 1;
+      else if (tvoc_value <= 220) return 2;
+      else if (tvoc_value <= 650) return 3;
+      else if (tvoc_value <= 2200) return 4;
+      else return 5;
+    on_value:
+      then:
+        - script.execute: update_aqi_status
+
+  # AHT
+  - platform: aht10
+    variant: AHT20
+    temperature:
+      name: "AHT Temperature"
+      id: aht_temp
+      filters:
+        - offset: !lambda return id(temp_offset);
+    humidity:
+      name: "AHT Humidity"
+      id: aht_humid
+      filters:
+        - offset: !lambda return id(humid_offset);
+    update_interval: 60s
+    i2c_id: bus_a
+    address: 0x38
+
+uart:
+  id: uart_mhz19
+  rx_pin: GPIO44
+  tx_pin: GPIO43
+  baud_rate: 9600
+
+i2c:
+  sda: GPIO39
+  scl: GPIO40
+  scan: true
+  id: bus_a
+
+button:
+  - platform: restart
+    icon: mdi:power-cycle
+    name: "ESP Reboot"
+  - platform: factory_reset
+    name: "ESP Factory Reset"
+  - platform: safe_mode
+    name: "ESP Safe Mode"
+  - platform: template
+    name: "CO2 Zero Calibration"
+    entity_category: "config"
+    icon: mdi:alert
+    disabled_by_default: true
+    on_press:
+      - mhz19.calibrate_zero: mhz19_id
+      - logger.log:
+          format: "Starting zero point calibration..."
+          level: INFO
+
+  # CO2 Reset Thresholds
+  - platform: template
+    name: "CO2 Reset Thresholds"
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: co2_low_threshold_config
+            value: $co2_low_init
+        - number.set:
+            id: co2_medium_threshold_config
+            value: $co2_medium_init
+  - platform: template
+    name: "CO2 Reset Multiplier"
+    disabled_by_default: true
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: co2_multiplier_adjust
+            value: $co2_multiplier_init
+  # PM2.5 Reset Thresholds
+  - platform: template
+    name: "PM2.5 Reset Thresholds"
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: dust_low_threshold_config
+            value: $dust_low_init
+        - number.set:
+            id: dust_medium_threshold_config
+            value: $dust_medium_init
+  - platform: template
+    name: "PM2.5 Reset Multiplier"
+    disabled_by_default: true
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: dust_multiplier_adjust
+            value: $dust_multiplier_init
+  # TVOC Reset Thresholds
+  - platform: template
+    name: "TVOC Reset Thresholds"
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: tvoc_low_threshold_config
+            value: $tvoc_low_init
+        - number.set:
+            id: tvoc_medium_threshold_config
+            value: $tvoc_medium_init
+  - platform: template
+    name: "TVOC Reset Multiplier"
+    disabled_by_default: true
+    entity_category: config
+    icon: mdi:refresh
+    on_press:
+      then:
+        - number.set:
+            id: tvoc_multiplier_adjust
+            value: $tvoc_multiplier_init
+
+switch:
+  - platform: template
+    name: "MH-Z19 ABC"
+    optimistic: true
+    disabled_by_default: true
+    entity_category: "config"
+    icon: mdi:alert-circle
+    turn_on_action:
+      mhz19.abc_enable: mhz19_id
+    turn_off_action:
+      mhz19.abc_disable: mhz19_id
+  - platform: template
+    name: "Indicator"
+    id: indicator_switch
+    restore_mode: RESTORE_DEFAULT_ON
+    lambda: |-
+      return id(indicator_enabled);
+    turn_on_action:
+      - globals.set:
+          id: indicator_enabled
+          value: 'true'
+      # Update all LED status when indicator enabled
+      - script.execute: update_co2_status
+      - script.execute: update_dust_status
+      - script.execute: update_tvoc_status
+    turn_off_action:
+      - globals.set:
+          id: indicator_enabled
+          value: 'false'
+      # Turn off all LED when indicator disabled
+      - light.turn_off: led_co2
+      - light.turn_off: led_dust
+      - light.turn_off: led_tvoc
+
+number:
+  # CO2
+  - platform: template
+    name: "CO2 Low Threshold"
+    id: co2_low_threshold_config
+    min_value: 400
+    max_value: 2000
+    step: 50
+    initial_value: $co2_low_init
+    restore_value: true  # Menyimpan nilai terakhir
+    optimistic: true     # Memungkinkan perubahan langsung
+    unit_of_measurement: 'ppm'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: co2_low_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_co2_status
+  - platform: template
+    name: "CO2 Medium Threshold"
+    id: co2_medium_threshold_config
+    min_value: 400
+    max_value: 2000
+    step: 50
+    initial_value: $co2_medium_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'ppm'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: co2_medium_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_co2_status
+  - platform: template
+    name: "CO2 Multiplier"
+    id: co2_multiplier_adjust
+    disabled_by_default: true
+    min_value: 0.05
+    max_value: 2
+    mode: BOX
+    step: 0.05
+    initial_value: $co2_multiplier_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'x'
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            id(co2_multiplier) = x;
+  # PM2.5
+  - platform: template
+    name: "PM2.5 Low Threshold"
+    id: dust_low_threshold_config
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: $dust_low_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'µg/m³'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: dust_low_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_dust_status
+  - platform: template
+    name: "PM2.5 Medium Threshold"
+    id: dust_medium_threshold_config
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: $dust_medium_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'µg/m³'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: dust_medium_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_dust_status
+  - platform: template
+    name: "PM2.5 Multiplier"
+    id: dust_multiplier_adjust
+    disabled_by_default: true
+    min_value: 0.05
+    max_value: 2
+    mode: BOX
+    step: 0.05
+    initial_value: $dust_multiplier_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'x'
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            id(dust_multiplier) = x;
+  # TVOC
+  - platform: template
+    name: "TVOC Low Threshold"
+    id: tvoc_low_threshold_config
+    min_value: 0
+    max_value: 1000
+    step: 10
+    initial_value: $tvoc_low_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'ppb'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: tvoc_low_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_tvoc_status
+  - platform: template
+    name: "TVOC Medium Threshold"
+    id: tvoc_medium_threshold_config
+    min_value: 0
+    max_value: 1000
+    step: 10
+    initial_value: $tvoc_medium_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'ppb'
+    entity_category: config
+    on_value:
+      then:
+        - globals.set:
+            id: tvoc_medium_threshold
+            value: !lambda 'return x;'
+        - script.execute: update_tvoc_status
+  - platform: template
+    name: "TVOC Multiplier"
+    id: tvoc_multiplier_adjust
+    disabled_by_default: true
+    min_value: 0.05
+    max_value: 2
+    mode: BOX
+    step: 0.05
+    initial_value: $tvoc_multiplier_init
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: 'x'
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            id(tvoc_multiplier) = x;
+  # AHT
+  - platform: template
+    name: "AHT Temperature Offset"
+    id: temp_offset_adjust
+    min_value: -99
+    max_value: 99
+    mode: BOX
+    step: 0.1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: '°C'
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            id(temp_offset) = x;
+  - platform: template
+    name: "AHT Humidity Offset"
+    id: humid_offset_adjust
+    min_value: -99
+    max_value: 99
+    mode: BOX
+    step: 1
+    initial_value: 0
+    restore_value: true
+    optimistic: true
+    unit_of_measurement: '%'
+    entity_category: config
+    on_value:
+      then:
+        - lambda: |-
+            id(humid_offset) = x;
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "ESP IP"
+      entity_category: "diagnostic"
+      icon: mdi:ip-network
+    mac_address:
+      name: "ESP MAC"
+      entity_category: "diagnostic"
+      icon: mdi:network
+    ssid:
+      name: "WiFi SSID"
+      entity_category: "diagnostic"
+      icon: mdi:router-wireless
+  # Optional: Add Home Assistant sensor entities as text sensor
+  - platform: template
+    name: "CO2 Status"
+    id: co2_status
+  - platform: template
+    name: "PM2.5 Status"
+    id: dust_status
+  - platform: template
+    name: "TVOC Status"
+    id: tvoc_status
+  - platform: template
+    name: "Air Quality Rating"
+    id: air_quality_rating
+
+output:
+  - platform: gpio
+    id: dust_sensor_led
+    pin: GPIO5
+    inverted: true
+  - platform: template # status led
+    id: status_output
+    type: float
+    write_action:
+      - if:
+          condition:
+             lambda: return state > 0;
+          then:
+            - light.turn_on: 
+                id: statusled
+                effect: "Status Blink"
+          else:
+            - light.turn_off: 
+                id: statusled
+
+light:
+  - platform: status_led # status led
+    name: "Status"
+    id: status
+    output: status_output
+    internal: true
+  - platform: esp32_rmt_led_strip # status led
+    rgb_order: GRB
+    pin: GPIO48
+    num_leds: 1
+    rmt_channel: 0
+    chipset: ws2812
+    name: "Status LED"
+    id: statusled
+    color_correct: [$cr1,$cr1,$cb1]
+    disabled_by_default: true
+    effects:
+      - strobe:
+          name: "Status Blink"
+          colors:
+            - state: true
+              red: 1
+              green: 0
+              blue: 0
+              duration: 300ms
+            - state: false
+              duration: 500ms
+            - state: true
+              red: 0
+              green: 1
+              blue: 0
+              duration: 300ms
+            - state: false
+              duration: 500ms
+            - state: true
+              red: 0
+              green: 0
+              blue: 1
+              duration: 300ms
+            - state: false
+              duration: 500ms
+      - addressable_rainbow:
+          name: "Rainbow"
+          speed: 20
+  - platform: esp32_rmt_led_strip # led strip
+    rgb_order: GRB
+    pin: GPIO3
+    num_leds: 3
+    rmt_channel: 1
+    chipset: ws2812
+    id: iled
+    internal: true # internal !!!
+  - platform: partition
+    name: "Main LED"
+    id: main_led
+    default_transition_length: $tr
+    color_correct: [$cr1,$cr1,$cb1]
+    disabled_by_default: true
+    segments:
+      - id: iled
+        from: 0
+        to: 2
+        reversed: true
+    effects:
+      - addressable_rainbow:
+          name: "Rainbow"
+          speed: 20
+          width: 10
+  - platform: partition
+    name: "LED CO2"
+    id: led_co2
+    default_transition_length: $tr
+    color_correct: [$cr2,$cr2,$cb2]
+    disabled_by_default: true
+    segments:
+      - id: iled
+        from: 0
+        to: 0
+  - platform: partition
+    name: "LED PM2.5"
+    id: led_dust
+    default_transition_length: $tr
+    color_correct: [$cr2,$cr2,$cb2]
+    disabled_by_default: true
+    segments:
+      - id: iled
+        from: 1
+        to: 1
+  - platform: partition
+    name: "LED TVOC"
+    id: led_tvoc
+    default_transition_length: $tr
+    color_correct: [$cr2,$cr2,$cb2]
+    disabled_by_default: true
+    segments:
+      - id: iled
+        from: 2
+        to: 2
