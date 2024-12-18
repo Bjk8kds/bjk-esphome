@@ -433,6 +433,7 @@ sensor:
   - platform: adc
     id: adc_sensor
     pin: GPIO4
+    attenuation: auto
     internal: true
     update_interval: never
 
