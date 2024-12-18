@@ -15,7 +15,7 @@ substitutions:
   # Initial value
   co2_low_init: "800"
   co2_medium_init: "1200"
-  co2_multiplier_init: "1.2"
+  co2_multiplier_init: "1"
   dust_low_init: "15"
   dust_medium_init: "50"
   dust_multiplier_init: "1" # GP2Y1014 Vo 0.1 - 1.1v (?)
