@@ -6,7 +6,7 @@ substitutions:
   # Provide an OTA password:
   ota_pass: "ota_password"
   # LED default transition
-  tr: "300ms"
+  tr: "200ms"
   # LED color correction
   cr1: "0.3"
   cb1: "0.35"
