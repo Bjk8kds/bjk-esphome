@@ -17,7 +17,7 @@ substitutions:
   co2_medium_init: "1200"
   co2_multiplier_init: "1"
   dust_low_init: "15"
-  dust_medium_init: "50"
+  dust_medium_init: "35"
   dust_multiplier_init: "1" # GP2Y1014 Vo 0.1 - 1.1v (?)
   tvoc_low_init: "250"
   tvoc_medium_init: "650"
@@ -716,7 +716,7 @@ number:
     name: "PM2.5 Medium Threshold"
     id: dust_medium_threshold_config
     min_value: 0
-    max_value: 100
+    max_value: 70
     step: 1
     initial_value: $dust_medium_init
     restore_value: true
