@@ -10,8 +10,8 @@ substitutions:
   # LED color correction
   cr1: "0.3"
   cb1: "0.35"
-  cr2: "0.2"
-  cb2: "0.24"
+  cr2: "0.19"
+  cb2: "0.23"
   # Initial value
   co2_low_init: "800"
   co2_medium_init: "1200"
@@ -57,6 +57,13 @@ esp32:
     type: esp-idf
 
 psram:
+
+external_components:
+  # New driver for Esphome 2024.12.0 (with esp-idf 5.x)
+  - source: github://pr#7942 # ADC driver
+    components: [ adc ]
+  - source: github://esphome/esphome@94befe126bc952785994ddf8dcfd15e9c3c3ff23 # RMT driver, remove rmt_channel when using esp-idf
+    components: [ remote_base, remote_receiver, remote_transmitter, esp32_rmt, esp32_rmt_led_strip ]
 
 # Enable Home Assistant API
 api:
@@ -329,23 +336,7 @@ script:
               default: return {"Not Available"};
             }
 
-sensor:
-  - platform: template
-    name: ESP CPU Speed
-    icon: mdi:chip
-    lambda: |-
-      return ets_get_cpu_frequency();
-    accuracy_decimals: 0
-    unit_of_measurement: 'MHz'
-    entity_category: "diagnostic"
-  - platform: template
-    name: ESP APB Speed
-    icon: mdi:chip
-    lambda: |-
-      return ets_get_apb_freq() / 1000000;
-    accuracy_decimals: 0
-    unit_of_measurement: 'MHz'
-    entity_category: "diagnostic"
+sensor: # remove ets cpu & apb freq, no longer works in Esphome 2024.12.0 (esp-idf 5.x)
   - platform: template
     id: esp_free_memory
     icon: mdi:memory
@@ -880,7 +871,7 @@ output:
             - light.turn_off: 
                 id: statusled
 
-light:
+light: # remove rmt_channel, no longer works with new driver above (esp-idf)
   - platform: status_led # status led
     name: "Status"
     id: status
@@ -890,7 +881,6 @@ light:
     rgb_order: GRB
     pin: GPIO48
     num_leds: 1
-    rmt_channel: 0
     chipset: ws2812
     name: "Status LED"
     id: statusled
@@ -928,7 +918,6 @@ light:
     rgb_order: GRB
     pin: GPIO3
     num_leds: 3
-    rmt_channel: 1
     chipset: ws2812
     id: iled
     internal: true # internal !!!
