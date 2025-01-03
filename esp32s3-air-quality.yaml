@@ -412,7 +412,7 @@ sensor: # remove ets cpu & apb freq, no longer works in Esphome 2024.12.0 (esp-i
     update_interval: 30s
     filters:
       - sliding_window_moving_average:
-          window_size: 6
+          window_size: 10
           send_every: 2
           send_first_at: 2
       - skip_initial: 1
