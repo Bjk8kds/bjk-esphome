@@ -434,7 +434,7 @@ sensor: # remove ets cpu & apb freq, no longer works in Esphome 2024.12.0 (esp-i
       id: tvoc_sensor
       filters:
         - sliding_window_moving_average:
-            window_size: 3
+            window_size: 4
             send_every: 2
             send_first_at: 2
         - multiply: !lambda return id(tvoc_multiplier);
